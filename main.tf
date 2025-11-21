@@ -126,4 +126,87 @@ resource "aws_ecs_task_definition" "task" {
     image     = "${aws_ecr_repository.repo.repository_url}:latest"
     essential = true
 
-    portMappings
+    portMappings = [{
+      containerPort = var.container_port
+      hostPort      = var.container_port
+    }]
+  }])
+}
+
+############################
+# LOAD BALANCER
+############################
+
+resource "aws_lb" "alb" {
+  name               = "${var.project_name}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  subnets = [
+    aws_subnet.public_1.id,
+    aws_subnet.public_2.id
+  ]
+}
+
+resource "aws_lb_target_group" "tg" {
+  name        = "${var.project_name}-tg"
+  port        = var.container_port
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"   # REQUIRED FOR FARGATE
+
+  health_check {
+    path                = "/"
+    matcher             = "200"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_lb_listener" "listener" {
+  load_balancer_arn = aws_lb.alb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.tg.arn
+  }
+}
+
+############################
+# ECS SERVICE
+############################
+
+resource "aws_ecs_service" "service" {
+  name            = "${var.project_name}-service"
+  cluster         = aws_ecs_cluster.cluster.id
+  task_definition = aws_ecs_task_definition.task.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets = [
+      aws_subnet.public_1.id,
+      aws_subnet.public_2.id
+    ]
+    security_groups  = [aws_security_group.ecs_sg.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.tg.arn
+    container_name   = var.project_name
+    container_port   = var.container_port
+  }
+
+  depends_on = [
+    aws_lb_listener.listener,
+    aws_lb_target_group.tg
+  ]
+}
