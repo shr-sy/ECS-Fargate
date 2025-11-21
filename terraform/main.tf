@@ -2,8 +2,7 @@
 # VPC
 ###########################
 module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "5.0.0"
+  source = "terraform-aws-modules/vpc/aws"
 
   name = "${var.project_name}-vpc"
   cidr = var.vpc_cidr
@@ -20,8 +19,7 @@ module "vpc" {
 # ECR
 ###########################
 module "ecr" {
-  source  = "terraform-aws-modules/ecr/aws"
-  version = "3.1.0"
+  source = "terraform-aws-modules/ecr/aws"
 
   repository_name = "${var.project_name}-repo"
 }
@@ -30,8 +28,7 @@ module "ecr" {
 # ECS Cluster
 ###########################
 module "ecs" {
-  source  = "terraform-aws-modules/ecs/aws"
-  version = "5.2.0"
+  source = "terraform-aws-modules/ecs/aws"
 
   cluster_name = "${var.project_name}-cluster"
 }
@@ -40,8 +37,7 @@ module "ecs" {
 # ALB
 ###########################
 module "alb" {
-  source  = "terraform-aws-modules/alb/aws"
-  version = "8.0.0" # Downgraded from 9.0.0 to work with AWS provider 5.x
+  source = "terraform-aws-modules/alb/aws"
 
   name               = "${var.project_name}-alb"
   load_balancer_type = "application"
@@ -76,8 +72,7 @@ module "alb" {
 # ECS Fargate Service
 ###########################
 module "ecs_service" {
-  source  = "terraform-aws-modules/ecs/aws//modules/service"
-  version = "5.2.0"
+  source = "terraform-aws-modules/ecs/aws//modules/service"
 
   name        = "${var.project_name}-service"
   cluster_arn = module.ecs.cluster_arn
