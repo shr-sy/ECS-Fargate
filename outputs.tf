@@ -3,7 +3,7 @@ output "alb_dns" {
 }
 
 output "ecr_repo_url" {
-  value = aws_ecr_repository.repo.repository_url
+  value = aws_ecr_repository.app.repository_url
 }
 
 output "cluster_name" {
