@@ -1,77 +1,56 @@
-##############################
-# Project Settings
-##############################
-
-variable "project_name" {
-  type        = string
-  description = "Name of the project"
-}
-
 variable "aws_region" {
   type        = string
   description = "AWS region"
 }
 
-##############################
-# Network
-##############################
-
-variable "vpc_cidr" {
+variable "AWS_ACCESS_KEY_ID" {
   type        = string
-  description = "VPC CIDR block"
+  sensitive   = true
 }
 
-##############################
-# ECS / Container
-##############################
-
-variable "container_port" {
-  type        = number
-  description = "Container port for ECS Fargate"
-}
-
-variable "cpu" {
-  type        = number
-  description = "ECS Fargate Task CPU"
-}
-
-variable "memory" {
-  type        = number
-  description = "ECS Fargate Task Memory"
-}
-
-##############################
-# GitHub Settings
-##############################
-
-variable "github_owner" {
+variable "AWS_SECRET_ACCESS_KEY" {
   type        = string
-  description = "GitHub username or org name"
-}
-
-variable "github_repo" {
-  type        = string
-  description = "GitHub repository name"
+  sensitive   = true
 }
 
 variable "github_branch" {
   type        = string
-  description = "Branch to use for CodeBuild"
-  default     = "main"
+}
+
+variable "github_owner" {
+  type        = string
+}
+
+variable "github_repo" {
+  type        = string
 }
 
 variable "github_oauth_token" {
   type        = string
   sensitive   = true
-  description = "GitHub personal access token for CodeBuild OAuth"
 }
 
-##############################
-# Optional (if needed later)
-##############################
-
-variable "environment" {
+variable "project_name" {
   type        = string
-  default     = "dev"
-  description = "Environment tag"
+  default     = "ecs-fargate-project"
+}
+
+variable "vpc_cidr" {
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
+variable "container_port" {
+  type        = number
+  default     = 3000
+}
+
+variable "cpu" {
+  type        = number
+  default     = 256
+}
+
+variable "memory" {
+  type        = number
+  default     = 512
 }
