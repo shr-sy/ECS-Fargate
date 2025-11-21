@@ -31,7 +31,11 @@ resource "aws_internet_gateway" "igw" {
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  route { cidr_block = "0.0.0.0/0" gateway_id = aws_internet_gateway.igw.id }
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
 }
 
 resource "aws_route_table_association" "public1" {
@@ -54,22 +58,37 @@ resource "aws_security_group" "ecs_tasks" {
   description = "Allow ALB -> ECS"
 
   ingress {
-    from_port   = var.container_port
-    to_port     = var.container_port
-    protocol    = "tcp"
+    from_port       = var.container_port
+    to_port         = var.container_port
+    protocol        = "tcp"
     security_groups = [aws_security_group.alb.id]
   }
 
-  egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_security_group" "alb" {
-  name        = "${var.project_name}-alb-sg"
-  vpc_id      = aws_vpc.main.id
+  name   = "${var.project_name}-alb-sg"
+  vpc_id = aws_vpc.main.id
 
-  ingress { from_port = 80 to_port = 80 protocol = "tcp" cidr_blocks = ["0.0.0.0/0"] }
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
-  egress { from_port = 0 to_port = 0 protocol = "-1" cidr_blocks = ["0.0.0.0/0"] }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 ###############################################
@@ -155,6 +174,7 @@ resource "aws_ecs_task_definition" "task" {
   container_definitions = jsonencode([{
     name  = "${var.project_name}"
     image = "${aws_ecr_repository.repo.repository_url}:latest"
+
     portMappings = [{
       containerPort = var.container_port
       hostPort      = var.container_port
@@ -171,12 +191,11 @@ resource "aws_ecs_service" "service" {
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.task.arn
   launch_type     = "FARGATE"
-
-  desired_count = 1
+  desired_count   = 1
 
   network_configuration {
-    subnets         = [aws_subnet.public1.id, aws_subnet.public2.id]
-    security_groups = [aws_security_group.ecs_tasks.id]
+    subnets          = [aws_subnet.public1.id, aws_subnet.public2.id]
+    security_groups  = [aws_security_group.ecs_tasks.id]
     assign_public_ip = true
   }
 
@@ -211,22 +230,34 @@ resource "aws_iam_role_policy_attachment" "codebuild_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
 }
 
+resource "aws_iam_role_policy_attachment" "codebuild_logs" {
+  role       = aws_iam_role.codebuild_role.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+}
+
 resource "aws_codebuild_project" "project" {
   name          = "${var.project_name}-build"
   service_role  = aws_iam_role.codebuild_role.arn
   build_timeout = 20
 
-  artifacts { type = "NO_ARTIFACTS" }
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
 
   environment {
-    compute_type                = "BUILD_GENERAL1_SMALL"
-    image                       = "aws/codebuild/standard:6.0"
-    type                        = "LINUX_CONTAINER"
-    privileged_mode             = true
+    compute_type    = "BUILD_GENERAL1_SMALL"
+    image           = "aws/codebuild/standard:6.0"
+    type            = "LINUX_CONTAINER"
+    privileged_mode = true
 
     environment_variable {
       name  = "PROJECT_NAME"
       value = var.project_name
+    }
+
+    environment_variable {
+      name  = "AWS_REGION"
+      value = var.aws_region
     }
   }
 
@@ -234,6 +265,11 @@ resource "aws_codebuild_project" "project" {
     type            = "GITHUB"
     location        = "https://github.com/${var.github_owner}/${var.github_repo}.git"
     git_clone_depth = 1
+
+    auth {
+      type     = "OAUTH"
+      resource = var.github_oauth_token
+    }
   }
 
   source_version = var.github_branch
