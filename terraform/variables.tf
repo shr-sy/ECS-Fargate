@@ -1,3 +1,6 @@
+# ------------------------
+# General Variables
+# ------------------------
 variable "aws_region" {
   description = "AWS region to deploy resources"
   type        = string
@@ -16,10 +19,9 @@ variable "environment" {
   default     = "dev"
 }
 
-# -----------------------------------------------------------
-# GitHub Variables for CodePipeline Integration
-# -----------------------------------------------------------
-
+# ------------------------
+# GitHub Variables
+# ------------------------
 variable "github_owner" {
   description = "GitHub organization or username"
   type        = string
@@ -37,15 +39,14 @@ variable "github_branch" {
 }
 
 variable "github_oauth_token" {
-  description = "GitHub personal access token for CodePipeline source authentication"
+  description = "GitHub personal access token for CodePipeline authentication"
   type        = string
   sensitive   = true
 }
 
-# -----------------------------------------------------------
-# Networking Variables (VPC + Subnets)
-# -----------------------------------------------------------
-
+# ------------------------
+# Networking (VPC/Subnets)
+# ------------------------
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
   type        = string
@@ -64,10 +65,9 @@ variable "private_subnet_cidrs" {
   default     = ["10.0.3.0/24", "10.0.4.0/24"]
 }
 
-# -----------------------------------------------------------
+# ------------------------
 # ECS / Fargate Variables
-# -----------------------------------------------------------
-
+# ------------------------
 variable "container_port" {
   description = "Application port exposed by the container"
   type        = number
@@ -92,10 +92,9 @@ variable "desired_count" {
   default     = 1
 }
 
-# -----------------------------------------------------------
+# ------------------------
 # CodeBuild Variables
-# -----------------------------------------------------------
-
+# ------------------------
 variable "codebuild_compute_type" {
   description = "CodeBuild compute size"
   type        = string
