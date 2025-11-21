@@ -260,22 +260,3 @@ resource "aws_codepipeline" "pipeline" {
     }
   }
 }
-
-###########################
-# Outputs
-###########################
-output "ecr_repo_url" {
-  value = module.ecr.repository_url
-}
-
-output "alb_dns_name" {
-  value = module.alb.lb_dns_name
-}
-
-output "cluster_name" {
-  value = module.ecs.cluster_name
-}
-
-output "service_name" {
-  value = module.ecs_service.service_name
-}
