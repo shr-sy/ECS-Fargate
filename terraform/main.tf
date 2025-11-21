@@ -1,290 +1,224 @@
-############################################
-# VPC + NETWORK
-############################################
-resource "aws_vpc" "main" {
-  cidr_block = var.vpc_cidr
+############################
+# VPC
+############################
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.0.0"
+
+  name = "${var.project}-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs             = ["${var.region}a", "${var.region}b"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
 }
 
-resource "aws_subnet" "public" {
-  count                   = length(var.public_subnet_cidrs)
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidrs[count.index]
-  map_public_ip_on_launch = true
+############################
+# ECR
+############################
+module "ecr" {
+  source = "terraform-aws-modules/ecr/aws"
+  version = "1.0.1"
+
+  repository_name = "${var.project}-repo"
 }
 
-resource "aws_subnet" "private" {
-  count      = length(var.private_subnet_cidrs)
-  vpc_id     = aws_vpc.main.id
-  cidr_block = var.private_subnet_cidrs[count.index]
+############################
+# ECS Cluster
+############################
+module "ecs" {
+  source  = "terraform-aws-modules/ecs/aws"
+  version = "5.2.0"
+
+  cluster_name = "${var.project}-cluster"
 }
 
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main.id
-}
+############################
+# ALB
+############################
+module "alb" {
+  source  = "terraform-aws-modules/alb/aws"
+  version = "9.0.0"
 
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
-  }
-}
-
-resource "aws_route_table_association" "public_assoc" {
-  count          = length(var.public_subnet_cidrs)
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-############################################
-# ECR REPOSITORY
-############################################
-resource "aws_ecr_repository" "repo" {
-  name = "${var.project_name}-${var.environment}"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-}
-
-############################################
-# ECS CLUSTER
-############################################
-resource "aws_ecs_cluster" "cluster" {
-  name = "${var.project_name}-${var.environment}-cluster"
-}
-
-############################################
-# IAM ROLES (Task + Execution)
-############################################
-resource "aws_iam_role" "ecs_task_execution" {
-  name = "${var.project_name}-${var.environment}-exec"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Effect    = "Allow",
-      Principal = { Service = "ecs-tasks.amazonaws.com" },
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "exec_attach" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-############################################
-# TASK DEFINITION
-############################################
-resource "aws_ecs_task_definition" "task" {
-  family                   = "${var.project_name}-task"
-  network_mode             = "awsvpc"
-  requires_compatibilities = ["FARGATE"]
-  cpu                      = var.cpu
-  memory                   = var.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
-
-  container_definitions = jsonencode([
-    {
-      name      = "app"
-      image     = "${aws_ecr_repository.repo.repository_url}:latest"
-      essential = true
-
-      portMappings = [{
-        containerPort = var.container_port
-        hostPort      = var.container_port
-      }]
-    }
-  ])
-}
-
-############################################
-# SECURITY GROUPS
-############################################
-resource "aws_security_group" "alb_sg" {
-  name        = "${var.project_name}-alb-sg"
-  description = "ALB SG"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_security_group" "ecs_sg" {
-  name        = "${var.project_name}-ecs-sg"
-  description = "ECS SG"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = var.container_port
-    to_port         = var.container_port
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-############################################
-# ALB + LISTENERS
-############################################
-resource "aws_lb" "alb" {
-  name               = "${var.project_name}-${var.environment}-alb"
-  internal           = false
+  name               = "${var.project}-alb"
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb_sg.id]
-  subnets            = aws_subnet.public[*].id
-}
 
-resource "aws_lb_target_group" "tg" {
-  name     = "${var.project_name}-${var.environment}-tg"
-  port     = var.container_port
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  subnets         = module.vpc.public_subnets
+  security_groups = []
 
-  health_check {
-    path = "/"
+  target_groups = {
+    app = {
+      port     = 80
+      protocol = "HTTP"
+      target_type = "ip"
+      health_check = {
+        path = "/"
+      }
+    }
+  }
+
+  listeners = {
+    http = {
+      port     = 80
+      protocol = "HTTP"
+      default_action = {
+        type = "forward"
+        target_group_key = "app"
+      }
+    }
   }
 }
 
-resource "aws_lb_listener" "listener" {
-  load_balancer_arn = aws_lb.alb.arn
-  port              = 80
-  protocol          = "HTTP"
+############################
+# ECS Fargate Service
+############################
+module "ecs_service" {
+  source  = "terraform-aws-modules/ecs/aws//modules/service"
+  version = "5.2.0"
 
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.tg.arn
-  }
+  name        = "${var.project}-service"
+  cluster_arn = module.ecs.cluster_arn
+
+  cpu    = 256
+  memory = 512
+
+  desired_count = 1
+  launch_type   = "FARGATE"
+
+  subnet_ids = module.vpc.private_subnets
+
+  container_definitions = [{
+    name      = "app"
+    image     = module.ecr.repository_url
+    cpu       = 256
+    memory    = 512
+    essential = true
+    port_mappings = [{
+      containerPort = 80
+    }]
+  }]
+
+  load_balancers = [{
+    target_group_arn = module.alb.target_groups["app"].arn
+    container_name   = "app"
+    container_port   = 80
+  }]
 }
 
-############################################
-# ECS SERVICE
-############################################
-resource "aws_ecs_service" "service" {
-  name            = "${var.project_name}-${var.environment}-svc"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.task.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
-
-  network_configuration {
-    subnets         = aws_subnet.private[*].id
-    security_groups = [aws_security_group.ecs_sg.id]
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.tg.arn
-    container_name    = "app"
-    container_port    = var.container_port
-  }
-
-  depends_on = [aws_lb_listener.listener]
-}
-
-############################################
-# CODEBUILD IAM ROLE
-############################################
+############################
+# IAM Role for CodeBuild
+############################
 resource "aws_iam_role" "codebuild_role" {
-  name = "${var.project_name}-${var.environment}-cb-role"
+  name = "${var.project}-codebuild-role"
 
   assume_role_policy = jsonencode({
-    Version = "2012-10-17",
+    Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow",
-      Principal = { Service = "codebuild.amazonaws.com" },
-      Action    = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "codebuild.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
     }]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "cb_attach" {
-  role       = aws_iam_role.codebuild_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+resource "aws_iam_role_policy" "codebuild_policy" {
+  role = aws_iam_role.codebuild_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:*",
+          "logs:*",
+          "s3:*"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
 }
 
-############################################
-# CODEBUILD PROJECT
-############################################
+############################
+# CodeBuild
+############################
 resource "aws_codebuild_project" "build" {
-  name         = "${var.project_name}-${var.environment}-build"
+  name         = "${var.project}-build"
   service_role = aws_iam_role.codebuild_role.arn
-  build_timeout = 60
-
-  environment {
-    compute_type = var.codebuild_compute_type
-    image        = var.codebuild_image
-    type         = "LINUX_CONTAINER"
-    privileged_mode = true
-
-    environment_variable {
-      name  = "AWS_REGION"
-      value = var.aws_region
-    }
-
-    environment_variable {
-      name  = "PROJECT_NAME"
-      value = "${var.project_name}-${var.environment}"
-    }
-  }
 
   source {
     type            = "GITHUB"
     location        = "https://github.com/${var.github_owner}/${var.github_repo}.git"
+    buildspec       = "buildspec.yml"
     git_clone_depth = 1
   }
 
   artifacts {
     type = "NO_ARTIFACTS"
   }
+
+  environment {
+    compute_type                = "BUILD_GENERAL1_SMALL"
+    image                       = "aws/codebuild/standard:7.0"
+    type                        = "LINUX_CONTAINER"
+    privileged_mode             = true
+    environment_variable {
+      name  = "ECR_REPO"
+      value = module.ecr.repository_url
+    }
+  }
 }
 
-############################################
-# CODEPIPELINE ROLE
-############################################
-resource "aws_iam_role" "codepipeline_role" {
-  name = "${var.project_name}-${var.environment}-cp-role"
+############################
+# CodePipeline IAM Role
+############################
+resource "aws_iam_role" "pipeline_role" {
+  name = "${var.project}-pipeline-role"
 
   assume_role_policy = jsonencode({
-    Version = "2012-10-17",
+    Version = "2012-10-17"
     Statement = [{
-      Effect    = "Allow",
-      Principal = { Service = "codepipeline.amazonaws.com" },
-      Action    = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "codepipeline.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
     }]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "cp_attach" {
-  role       = aws_iam_role.codepipeline_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+resource "aws_iam_role_policy" "pipeline_policy" {
+  role = aws_iam_role.pipeline_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:*", "codebuild:*", "iam:PassRole"]
+      Resource = "*"
+    }]
+  })
 }
 
-############################################
-# CODEPIPELINE
-############################################
+############################
+# S3 Bucket for Pipeline
+############################
+resource "aws_s3_bucket" "pipeline_bucket" {
+  bucket = "${var.project}-pipeline-artifacts"
+}
+
+############################
+# CodePipeline
+############################
 resource "aws_codepipeline" "pipeline" {
-  name     = "${var.project_name}-${var.environment}-pipeline"
-  role_arn = aws_iam_role.codepipeline_role.arn
+  name     = "${var.project}-pipeline"
+  role_arn = aws_iam_role.pipeline_role.arn
 
   artifact_store {
     type     = "S3"
@@ -315,7 +249,7 @@ resource "aws_codepipeline" "pipeline" {
     name = "Build"
 
     action {
-      name             = "CodeBuild"
+      name             = "Build"
       category         = "Build"
       owner            = "AWS"
       provider         = "CodeBuild"
@@ -328,31 +262,4 @@ resource "aws_codepipeline" "pipeline" {
       }
     }
   }
-
-  stage {
-    name = "Deploy"
-
-    action {
-      name            = "ECS_Deploy"
-      category        = "Deploy"
-      owner           = "AWS"
-      provider        = "ECS"
-      version         = "1"
-      input_artifacts = ["build_output"]
-
-      configuration = {
-        ClusterName = aws_ecs_cluster.cluster.name
-        ServiceName = aws_ecs_service.service.name
-        FileName   = "imagedefinitions.json"
-      }
-    }
-  }
-}
-
-############################################
-# S3 BUCKET FOR PIPELINE ARTIFACTS
-############################################
-resource "aws_s3_bucket" "pipeline_bucket" {
-  bucket = "${var.project_name}-${var.environment}-pipeline-artifacts"
-  force_destroy = true
 }
