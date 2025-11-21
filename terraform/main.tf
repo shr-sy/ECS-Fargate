@@ -83,8 +83,8 @@ module "ecs_service" {
   launch_type   = "FARGATE"
   subnet_ids    = module.vpc.private_subnets
 
-  container_definitions = [
-    {
+  container_definitions = {
+    app = {
       name      = "app"
       image     = module.ecr.repository_url
       cpu       = var.cpu
@@ -96,15 +96,16 @@ module "ecs_service" {
         }
       ]
     }
-  ]
-
-  load_balancer = {
-    target_group_arn = module.alb.target_groups["app"].arn
-    container_name   = "app"
-    container_port   = var.container_port
   }
-}
 
+  load_balancers = [
+    {
+      target_group_arn = module.alb.target_groups["app"].arn
+      container_name   = "app"
+      container_port   = var.container_port
+    }
+  ]
+}
 ###########################
 # CodeBuild IAM Role
 ###########################
