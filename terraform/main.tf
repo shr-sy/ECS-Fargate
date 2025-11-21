@@ -20,7 +20,7 @@ module "vpc" {
 # ECR
 ###########################
 module "ecr" {
-  source = "terraform-aws-modules/ecr/aws"
+  source  = "terraform-aws-modules/ecr/aws"
   version = "3.1.0"
 
   repository_name = "${var.project_name}-repo"
@@ -133,13 +133,11 @@ resource "aws_iam_role_policy" "codebuild_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["ecr:*", "logs:*", "s3:*"]
-        Resource = "*"
-      }
-    ]
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["ecr:*", "logs:*", "s3:*"]
+      Resource = "*"
+    }]
   })
 }
 
