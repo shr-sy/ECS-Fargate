@@ -4,11 +4,13 @@
 variable "aws_region" {
   type        = string
   description = "AWS region"
+  default     = "us-east-1"
 }
 
 variable "github_branch" {
   type        = string
   description = "GitHub branch"
+  default     = "main"
 }
 
 variable "github_owner" {
