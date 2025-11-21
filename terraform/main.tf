@@ -356,18 +356,3 @@ resource "aws_s3_bucket" "pipeline_bucket" {
   bucket = "${var.project_name}-${var.environment}-pipeline-artifacts"
   force_destroy = true
 }
-
-############################################
-# OUTPUTS
-############################################
-output "alb_dns" {
-  value = aws_lb.alb.dns_name
-}
-
-output "cluster_name" {
-  value = aws_ecs_cluster.cluster.name
-}
-
-output "ecr_repo_url" {
-  value = aws_ecr_repository.repo.repository_url
-}
