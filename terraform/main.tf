@@ -21,7 +21,7 @@ module "vpc" {
 ############################
 module "ecr" {
   source = "terraform-aws-modules/ecr/aws"
-  version = "1.0.1"
+  version = "3.1.0"
 
   repository_name = "${var.project}-repo"
 }
