@@ -5,13 +5,13 @@ module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "5.0.0"
 
-  providers = { aws = aws }
+  name = "${var.project_name}-vpc"
+  cidr = var.vpc_cidr
 
-  name             = "${var.project_name}-vpc"
-  cidr             = var.vpc_cidr
-  azs              = ["${var.aws_region}a", "${var.aws_region}b"]
-  public_subnets   = var.public_subnet_cidrs
-  private_subnets  = var.private_subnet_cidrs
+  azs             = ["${var.aws_region}a", "${var.aws_region}b"]
+  public_subnets  = var.public_subnet_cidrs
+  private_subnets = var.private_subnet_cidrs
+
   enable_nat_gateway = true
   single_nat_gateway = true
 }
@@ -23,8 +23,6 @@ module "ecr" {
   source  = "terraform-aws-modules/ecr/aws"
   version = "3.1.0"
 
-  providers = { aws = aws }
-
   repository_name = "${var.project_name}-repo"
 }
 
@@ -35,8 +33,6 @@ module "ecs" {
   source  = "terraform-aws-modules/ecs/aws"
   version = "5.2.0"
 
-  providers = { aws = aws }
-
   cluster_name = "${var.project_name}-cluster"
 }
 
@@ -45,14 +41,13 @@ module "ecs" {
 ###########################
 module "alb" {
   source  = "terraform-aws-modules/alb/aws"
-  version = "9.0.0"
-
-  providers = { aws = aws }
+  version = "8.0.0" # Downgraded from 9.0.0 to work with AWS provider 5.x
 
   name               = "${var.project_name}-alb"
   load_balancer_type = "application"
-  subnets            = module.vpc.public_subnets
-  security_groups    = []
+
+  subnets         = module.vpc.public_subnets
+  security_groups = []
 
   target_groups = {
     app = {
@@ -84,12 +79,11 @@ module "ecs_service" {
   source  = "terraform-aws-modules/ecs/aws//modules/service"
   version = "5.2.0"
 
-  providers = { aws = aws }
-
   name        = "${var.project_name}-service"
   cluster_arn = module.ecs.cluster_arn
-  cpu         = var.cpu
-  memory      = var.memory
+
+  cpu           = var.cpu
+  memory        = var.memory
   desired_count = var.desired_count
   launch_type   = "FARGATE"
   subnet_ids    = module.vpc.private_subnets
@@ -126,8 +120,10 @@ resource "aws_iam_role" "codebuild_role" {
     Version = "2012-10-17"
     Statement = [{
       Effect = "Allow"
-      Principal = { Service = "codebuild.amazonaws.com" }
-      Action   = "sts:AssumeRole"
+      Principal = {
+        Service = "codebuild.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
     }]
   })
 }
@@ -159,7 +155,9 @@ resource "aws_codebuild_project" "build" {
     git_clone_depth = 1
   }
 
-  artifacts { type = "NO_ARTIFACTS" }
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
 
   environment {
     compute_type    = var.codebuild_compute_type
@@ -184,8 +182,10 @@ resource "aws_iam_role" "pipeline_role" {
     Version = "2012-10-17"
     Statement = [{
       Effect = "Allow"
-      Principal = { Service = "codepipeline.amazonaws.com" }
-      Action   = "sts:AssumeRole"
+      Principal = {
+        Service = "codepipeline.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
     }]
   })
 }
@@ -224,6 +224,7 @@ resource "aws_codepipeline" "pipeline" {
 
   stage {
     name = "Source"
+
     action {
       name             = "GitHub_Source"
       category         = "Source"
@@ -243,6 +244,7 @@ resource "aws_codepipeline" "pipeline" {
 
   stage {
     name = "Build"
+
     action {
       name             = "Build"
       category         = "Build"
@@ -259,3 +261,21 @@ resource "aws_codepipeline" "pipeline" {
   }
 }
 
+###########################
+# Outputs
+###########################
+output "ecr_repo_url" {
+  value = module.ecr.repository_url
+}
+
+output "alb_dns_name" {
+  value = module.alb.lb_dns_name
+}
+
+output "cluster_name" {
+  value = module.ecs.cluster_name
+}
+
+output "service_name" {
+  value = module.ecs_service.service_name
+}
