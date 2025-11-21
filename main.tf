@@ -35,14 +35,14 @@ resource "aws_ecr_repository" "app" {
 # ECS CLUSTER
 ############################################################
 resource "aws_ecs_cluster" "cluster" {
-  name = "${var.project_name}-cluster-${terraform.workspace}"
+  name = "${var.project_name}-${terraform.workspace}-cl"
 }
 
 ############################################################
 # SECURITY GROUPS
 ############################################################
 resource "aws_security_group" "alb_sg" {
-  name        = "${var.project_name}-alb-sg-${terraform.workspace}"
+  name        = "${var.project_name}-${terraform.workspace}-alb-sg"
   description = "Allow inbound HTTP"
   vpc_id      = module.vpc.vpc_id
 
@@ -62,7 +62,7 @@ resource "aws_security_group" "alb_sg" {
 }
 
 resource "aws_security_group" "ecs_service_sg" {
-  name   = "${var.project_name}-ecs-sg-${terraform.workspace}"
+  name   = "${var.project_name}-${terraform.workspace}-ecs-sg"
   vpc_id = module.vpc.vpc_id
 
   ingress {
@@ -84,17 +84,19 @@ resource "aws_security_group" "ecs_service_sg" {
 # LOAD BALANCER
 ############################################################
 resource "aws_lb" "alb" {
-  name               = "${var.project_name}-alb-${terraform.workspace}"
+  # must be < 32 chars
+  name               = "${var.project_name}-${terraform.workspace}-alb"
   load_balancer_type = "application"
   subnets            = module.vpc.public_subnets
   security_groups    = [aws_security_group.alb_sg.id]
 }
 
 ############################################################
-# TARGET GROUP (Corrected)
+# TARGET GROUP
 ############################################################
 resource "aws_lb_target_group" "tg" {
-  name        = "${var.project_name}-tg-${terraform.workspace}"
+  # must be < 32 chars
+  name        = "${var.project_name}-${terraform.workspace}-tg"
   port        = var.container_port
   protocol    = "HTTP"
   target_type = "ip"
@@ -127,15 +129,13 @@ resource "aws_lb_listener" "listener" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.tg.arn
   }
-
-  depends_on = [aws_lb_target_group.tg]
 }
 
 ############################################################
-# ECS TASK ROLE
+# IAM ROLES
 ############################################################
 resource "aws_iam_role" "task_role" {
-  name = "${var.project_name}-task-role-${terraform.workspace}"
+  name = "${var.project_name}-${terraform.workspace}-task-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -149,9 +149,6 @@ resource "aws_iam_role" "task_role" {
   })
 }
 
-############################################################
-# EXECUTION ROLE FOR ECS FARGATE
-############################################################
 data "aws_iam_policy_document" "execution_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -163,7 +160,7 @@ data "aws_iam_policy_document" "execution_role" {
 }
 
 resource "aws_iam_role" "execution_role" {
-  name               = "${var.project_name}-execution-role-${terraform.workspace}"
+  name               = "${var.project_name}-${terraform.workspace}-exec-role"
   assume_role_policy = data.aws_iam_policy_document.execution_role.json
 }
 
@@ -176,7 +173,7 @@ resource "aws_iam_role_policy_attachment" "exec_policy" {
 # TASK DEFINITION
 ############################################################
 resource "aws_ecs_task_definition" "task" {
-  family                   = "${var.project_name}-task-${terraform.workspace}"
+  family                   = "${var.project_name}-${terraform.workspace}-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = tostring(var.cpu)
@@ -199,10 +196,10 @@ resource "aws_ecs_task_definition" "task" {
 }
 
 ############################################################
-# ECS FARGATE SERVICE
+# ECS SERVICE
 ############################################################
 resource "aws_ecs_service" "service" {
-  name            = "${var.project_name}-svc-${terraform.workspace}"
+  name            = "${var.project_name}-${terraform.workspace}-svc"
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.task.arn
   launch_type     = "FARGATE"
@@ -224,7 +221,5 @@ resource "aws_ecs_service" "service" {
     ignore_changes = [task_definition]
   }
 
-  depends_on = [
-    aws_lb_listener.listener
-  ]
+  depends_on = [aws_lb_listener.listener]
 }
