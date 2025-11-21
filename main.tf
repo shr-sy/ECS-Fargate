@@ -1,28 +1,23 @@
-###############################################
-# VPC
-###############################################
+############################
+# VPC + NETWORKING
+############################
 
 resource "aws_vpc" "main" {
   cidr_block = var.vpc_cidr
-  tags = { Name = "${var.project_name}-vpc" }
 }
 
-resource "aws_subnet" "public1" {
+resource "aws_subnet" "public_1" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 4, 1)
+  cidr_block              = "10.0.1.0/24"
   availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
-
-  tags = { Name = "${var.project_name}-public-1" }
 }
 
-resource "aws_subnet" "public2" {
+resource "aws_subnet" "public_2" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 4, 2)
+  cidr_block              = "10.0.2.0/24"
   availability_zone       = "${var.aws_region}b"
   map_public_ip_on_launch = true
-
-  tags = { Name = "${var.project_name}-public-2" }
 }
 
 resource "aws_internet_gateway" "igw" {
@@ -38,47 +33,26 @@ resource "aws_route_table" "public" {
   }
 }
 
-resource "aws_route_table_association" "public1" {
+resource "aws_route_table_association" "a1" {
+  subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
-  subnet_id      = aws_subnet.public1.id
 }
 
-resource "aws_route_table_association" "public2" {
+resource "aws_route_table_association" "a2" {
+  subnet_id      = aws_subnet.public_2.id
   route_table_id = aws_route_table.public.id
-  subnet_id      = aws_subnet.public2.id
 }
 
-###############################################
-# Security Groups
-###############################################
+############################
+# SECURITY GROUP
+############################
 
-resource "aws_security_group" "ecs_tasks" {
-  name        = "${var.project_name}-ecs-sg"
-  vpc_id      = aws_vpc.main.id
-  description = "Allow ALB -> ECS"
-
-  ingress {
-    from_port       = var.container_port
-    to_port         = var.container_port
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_security_group" "alb" {
-  name   = "${var.project_name}-alb-sg"
+resource "aws_security_group" "ecs_sg" {
   vpc_id = aws_vpc.main.id
 
   ingress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = var.container_port
+    to_port     = var.container_port
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -91,27 +65,67 @@ resource "aws_security_group" "alb" {
   }
 }
 
-###############################################
-# Load Balancer
-###############################################
+############################
+# ECR
+############################
 
-resource "aws_lb" "app" {
+resource "aws_ecr_repository" "repo" {
+  name = var.project_name
+}
+
+############################
+# ECS CLUSTER
+############################
+
+resource "aws_ecs_cluster" "cluster" {
+  name = "${var.project_name}-cluster"
+}
+
+############################
+# TASK DEFINITION
+############################
+
+resource "aws_ecs_task_definition" "task" {
+  family                   = "${var.project_name}-task"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.cpu
+  memory                   = var.memory
+
+  container_definitions = jsonencode([
+    {
+      name  = var.project_name
+      image = "${aws_ecr_repository.repo.repository_url}:latest"
+      essential = true
+
+      portMappings = [{
+        containerPort = var.container_port
+        hostPort      = var.container_port
+      }]
+    }
+  ])
+}
+
+############################
+# LOAD BALANCER
+############################
+
+resource "aws_lb" "alb" {
   name               = "${var.project_name}-alb"
+  internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = [aws_subnet.public1.id, aws_subnet.public2.id]
+  subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
 }
 
 resource "aws_lb_target_group" "tg" {
-  name        = "${var.project_name}-tg"
-  port        = var.container_port
-  protocol    = "HTTP"
-  target_type = "ip"
-  vpc_id      = aws_vpc.main.id
+  name     = "${var.project_name}-tg"
+  port     = var.container_port
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.main.id
 }
 
 resource "aws_lb_listener" "listener" {
-  load_balancer_arn = aws_lb.app.arn
+  load_balancer_arn = aws_lb.alb.arn
   port              = 80
   protocol          = "HTTP"
 
@@ -121,70 +135,9 @@ resource "aws_lb_listener" "listener" {
   }
 }
 
-###############################################
-# ECR Repository
-###############################################
-
-resource "aws_ecr_repository" "repo" {
-  name = "${var.project_name}-repo"
-}
-
-###############################################
-# ECS Cluster
-###############################################
-
-resource "aws_ecs_cluster" "cluster" {
-  name = "${var.project_name}-cluster"
-}
-
-###############################################
-# IAM Roles
-###############################################
-
-resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "${var.project_name}-task-exec"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = { Service = "ecs-tasks.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_task_exec_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-###############################################
-# ECS Task Definition
-###############################################
-
-resource "aws_ecs_task_definition" "task" {
-  family                   = "${var.project_name}-task"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = var.cpu
-  memory                   = var.memory
-  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name  = "${var.project_name}"
-    image = "${aws_ecr_repository.repo.repository_url}:latest"
-
-    portMappings = [{
-      containerPort = var.container_port
-      hostPort      = var.container_port
-    }]
-  }])
-}
-
-###############################################
-# ECS Service
-###############################################
+############################
+# ECS SERVICE
+############################
 
 resource "aws_ecs_service" "service" {
   name            = "${var.project_name}-service"
@@ -194,8 +147,8 @@ resource "aws_ecs_service" "service" {
   desired_count   = 1
 
   network_configuration {
-    subnets          = [aws_subnet.public1.id, aws_subnet.public2.id]
-    security_groups  = [aws_security_group.ecs_tasks.id]
+    subnets         = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+    security_groups = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
 
@@ -204,61 +157,39 @@ resource "aws_ecs_service" "service" {
     container_name   = var.project_name
     container_port   = var.container_port
   }
-
-  depends_on = [aws_lb_listener.listener]
 }
 
-###############################################
-# CodeBuild: IAM Role + Project
-###############################################
+############################
+# CODEBUILD
+############################
 
 resource "aws_iam_role" "codebuild_role" {
-  name = "${var.project_name}-codebuild-role"
+  name = "${var.project_name}-codebuild"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect = "Allow"
       Principal = { Service = "codebuild.amazonaws.com" }
-      Action    = "sts:AssumeRole"
+      Action = "sts:AssumeRole"
     }]
   })
 }
 
-resource "aws_iam_role_policy_attachment" "codebuild_ecr" {
-  role       = aws_iam_role.codebuild_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPowerUser"
-}
-
-resource "aws_iam_role_policy_attachment" "codebuild_logs" {
-  role       = aws_iam_role.codebuild_role.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
-}
-
-resource "aws_codebuild_project" "project" {
+resource "aws_codebuild_project" "build" {
   name          = "${var.project_name}-build"
   service_role  = aws_iam_role.codebuild_role.arn
-  build_timeout = 20
+  build_timeout = 30
+
+  environment {
+    compute_type              = "BUILD_GENERAL1_SMALL"
+    image                     = "aws/codebuild/standard:5.0"
+    type                      = "LINUX_CONTAINER"
+    privileged_mode           = true
+  }
 
   artifacts {
     type = "NO_ARTIFACTS"
-  }
-
-  environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:6.0"
-    type            = "LINUX_CONTAINER"
-    privileged_mode = true
-
-    environment_variable {
-      name  = "PROJECT_NAME"
-      value = var.project_name
-    }
-
-    environment_variable {
-      name  = "AWS_REGION"
-      value = var.aws_region
-    }
   }
 
   source {
@@ -271,6 +202,73 @@ resource "aws_codebuild_project" "project" {
       resource = var.github_oauth_token
     }
   }
+}
 
-  source_version = var.github_branch
+############################
+# CODEPIPELINE
+############################
+
+resource "aws_iam_role" "codepipeline_role" {
+  name = "${var.project_name}-codepipeline"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = { Service = "codepipeline.amazonaws.com" }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_codepipeline" "pipeline" {
+  name     = "${var.project_name}-pipeline"
+  role_arn = aws_iam_role.codepipeline_role.arn
+
+  artifact_store {
+    type     = "S3"
+    location = aws_s3_bucket.pipeline_bucket.bucket
+  }
+
+  stage {
+    name = "Source"
+
+    action {
+      name     = "GitHub_Source"
+      category = "Source"
+      owner    = "ThirdParty"
+      provider = "GitHub"
+      version  = 1
+
+      configuration = {
+        Owner     = var.github_owner
+        Repo      = var.github_repo
+        Branch    = var.github_branch
+        OAuthToken = var.github_oauth_token
+      }
+
+      output_artifacts = ["source_output"]
+    }
+  }
+
+  stage {
+    name = "Build"
+
+    action {
+      name             = "CodeBuild"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      version          = 1
+      input_artifacts  = ["source_output"]
+      output_artifacts = ["build_output"]
+      configuration = {
+        ProjectName = aws_codebuild_project.build.name
+      }
+    }
+  }
+}
+
+resource "aws_s3_bucket" "pipeline_bucket" {
+  bucket = "${var.project_name}-pipeline-bucket"
 }
