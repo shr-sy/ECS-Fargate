@@ -10,6 +10,16 @@ variable "project_name" {
   default     = "efp"
 }
 
+variable "environment" {
+  description = "Environment name (dev, qa, prod)"
+  type        = string
+  default     = "dev"
+}
+
+# -----------------------------------------------------------
+# GitHub Variables for CodePipeline Integration
+# -----------------------------------------------------------
+
 variable "github_owner" {
   description = "GitHub organization or username"
   type        = string
@@ -25,6 +35,16 @@ variable "github_branch" {
   type        = string
   default     = "main"
 }
+
+variable "github_oauth_token" {
+  description = "GitHub personal access token for CodePipeline source authentication"
+  type        = string
+  sensitive   = true
+}
+
+# -----------------------------------------------------------
+# Networking Variables (VPC + Subnets)
+# -----------------------------------------------------------
 
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
@@ -43,6 +63,10 @@ variable "private_subnet_cidrs" {
   type        = list(string)
   default     = ["10.0.3.0/24", "10.0.4.0/24"]
 }
+
+# -----------------------------------------------------------
+# ECS / Fargate Variables
+# -----------------------------------------------------------
 
 variable "container_port" {
   description = "Application port exposed by the container"
@@ -68,14 +92,12 @@ variable "desired_count" {
   default     = 1
 }
 
-variable "environment" {
-  description = "Environment name (dev, qa, prod)"
-  type        = string
-  default     = "dev"
-}
+# -----------------------------------------------------------
+# CodeBuild Variables
+# -----------------------------------------------------------
 
 variable "codebuild_compute_type" {
-  description = "Build compute size"
+  description = "CodeBuild compute size"
   type        = string
   default     = "BUILD_GENERAL1_SMALL"
 }
