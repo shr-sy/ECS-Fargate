@@ -8,7 +8,7 @@ module "vpc" {
   name = "${var.project_name}-${terraform.workspace}-vpc"
   cidr = var.vpc_cidr
 
-  azs             = ["${var.region}a", "${var.region}b"]
+  azs             = ["${var.aws_region}a", "${var.aws_region}b"]
   public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
   private_subnets = ["10.0.3.0/24", "10.0.4.0/24"]
 
@@ -39,16 +39,6 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 ############################################################
-# LOAD BALANCER
-############################################################
-resource "aws_lb" "alb" {
-  name               = "${var.project_name}-alb-${terraform.workspace}"
-  load_balancer_type = "application"
-  subnets            = module.vpc.public_subnets
-  security_groups    = [aws_security_group.alb_sg.id]
-}
-
-############################################################
 # SECURITY GROUPS
 ############################################################
 resource "aws_security_group" "alb_sg" {
@@ -76,8 +66,8 @@ resource "aws_security_group" "ecs_service_sg" {
   vpc_id = module.vpc.vpc_id
 
   ingress {
-    from_port       = 80
-    to_port         = 80
+    from_port       = var.container_port
+    to_port         = var.container_port
     protocol        = "tcp"
     security_groups = [aws_security_group.alb_sg.id]
   }
@@ -91,11 +81,21 @@ resource "aws_security_group" "ecs_service_sg" {
 }
 
 ############################################################
+# LOAD BALANCER
+############################################################
+resource "aws_lb" "alb" {
+  name               = "${var.project_name}-alb-${terraform.workspace}"
+  load_balancer_type = "application"
+  subnets            = module.vpc.public_subnets
+  security_groups    = [aws_security_group.alb_sg.id]
+}
+
+############################################################
 # TARGET GROUP (Corrected)
 ############################################################
 resource "aws_lb_target_group" "tg" {
   name        = "${var.project_name}-tg-${terraform.workspace}"
-  port        = 80
+  port        = var.container_port
   protocol    = "HTTP"
   target_type = "ip"
   vpc_id      = module.vpc.vpc_id
@@ -127,6 +127,8 @@ resource "aws_lb_listener" "listener" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.tg.arn
   }
+
+  depends_on = [aws_lb_target_group.tg]
 }
 
 ############################################################
@@ -150,12 +152,6 @@ resource "aws_iam_role" "task_role" {
 ############################################################
 # EXECUTION ROLE FOR ECS FARGATE
 ############################################################
-resource "aws_iam_role" "execution_role" {
-  name = "${var.project_name}-execution-role-${terraform.workspace}"
-
-  assume_role_policy = data.aws_iam_policy_document.execution_role.json
-}
-
 data "aws_iam_policy_document" "execution_role" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -164,6 +160,11 @@ data "aws_iam_policy_document" "execution_role" {
       identifiers = ["ecs-tasks.amazonaws.com"]
     }
   }
+}
+
+resource "aws_iam_role" "execution_role" {
+  name               = "${var.project_name}-execution-role-${terraform.workspace}"
+  assume_role_policy = data.aws_iam_policy_document.execution_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "exec_policy" {
@@ -178,8 +179,8 @@ resource "aws_ecs_task_definition" "task" {
   family                   = "${var.project_name}-task-${terraform.workspace}"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "256"
-  memory                   = "512"
+  cpu                      = tostring(var.cpu)
+  memory                   = tostring(var.memory)
 
   execution_role_arn = aws_iam_role.execution_role.arn
   task_role_arn      = aws_iam_role.task_role.arn
@@ -189,9 +190,10 @@ resource "aws_ecs_task_definition" "task" {
       name  = "app"
       image = "${aws_ecr_repository.app.repository_url}:latest"
       portMappings = [{
-        containerPort = 80
+        containerPort = var.container_port
         protocol      = "tcp"
       }]
+      essential = true
     }
   ])
 }
@@ -204,17 +206,18 @@ resource "aws_ecs_service" "service" {
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.task.arn
   launch_type     = "FARGATE"
-  desired_count   = 1
+  desired_count   = var.desired_count
 
   network_configuration {
     subnets         = module.vpc.private_subnets
     security_groups = [aws_security_group.ecs_service_sg.id]
+    assign_public_ip = false
   }
 
   load_balancer {
     target_group_arn = aws_lb_target_group.tg.arn
     container_name   = "app"
-    container_port   = 80
+    container_port   = var.container_port
   }
 
   lifecycle {
