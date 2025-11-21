@@ -92,18 +92,16 @@ resource "aws_ecs_task_definition" "task" {
   cpu                      = var.cpu
   memory                   = var.memory
 
-  container_definitions = jsonencode([
-    {
-      name  = var.project_name
-      image = "${aws_ecr_repository.repo.repository_url}:latest"
-      essential = true
+  container_definitions = jsonencode([{
+    name      = var.project_name
+    image     = "${aws_ecr_repository.repo.repository_url}:latest"
+    essential = true
 
-      portMappings = [{
-        containerPort = var.container_port
-        hostPort      = var.container_port
-      }]
-    }
-  ])
+    portMappings = [{
+      containerPort = var.container_port
+      hostPort      = var.container_port
+    }]
+  }])
 }
 
 ############################
@@ -140,135 +138,4 @@ resource "aws_lb_listener" "listener" {
 ############################
 
 resource "aws_ecs_service" "service" {
-  name            = "${var.project_name}-service"
-  cluster         = aws_ecs_cluster.cluster.id
-  task_definition = aws_ecs_task_definition.task.arn
-  launch_type     = "FARGATE"
-  desired_count   = 1
-
-  network_configuration {
-    subnets         = [aws_subnet.public_1.id, aws_subnet.public_2.id]
-    security_groups = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.tg.arn
-    container_name   = var.project_name
-    container_port   = var.container_port
-  }
-}
-
-############################
-# CODEBUILD
-############################
-
-resource "aws_iam_role" "codebuild_role" {
-  name = "${var.project_name}-codebuild"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = { Service = "codebuild.amazonaws.com" }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_codebuild_project" "build" {
-  name          = "${var.project_name}-build"
-  service_role  = aws_iam_role.codebuild_role.arn
-  build_timeout = 30
-
-  environment {
-    compute_type              = "BUILD_GENERAL1_SMALL"
-    image                     = "aws/codebuild/standard:5.0"
-    type                      = "LINUX_CONTAINER"
-    privileged_mode           = true
-  }
-
-  artifacts {
-    type = "NO_ARTIFACTS"
-  }
-
-  source {
-    type            = "GITHUB"
-    location        = "https://github.com/${var.github_owner}/${var.github_repo}.git"
-    git_clone_depth = 1
-
-    auth {
-      type     = "OAUTH"
-      resource = var.github_oauth_token
-    }
-  }
-}
-
-############################
-# CODEPIPELINE
-############################
-
-resource "aws_iam_role" "codepipeline_role" {
-  name = "${var.project_name}-codepipeline"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Principal = { Service = "codepipeline.amazonaws.com" }
-      Action = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_codepipeline" "pipeline" {
-  name     = "${var.project_name}-pipeline"
-  role_arn = aws_iam_role.codepipeline_role.arn
-
-  artifact_store {
-    type     = "S3"
-    location = aws_s3_bucket.pipeline_bucket.bucket
-  }
-
-  stage {
-    name = "Source"
-
-    action {
-      name     = "GitHub_Source"
-      category = "Source"
-      owner    = "ThirdParty"
-      provider = "GitHub"
-      version  = 1
-
-      configuration = {
-        Owner     = var.github_owner
-        Repo      = var.github_repo
-        Branch    = var.github_branch
-        OAuthToken = var.github_oauth_token
-      }
-
-      output_artifacts = ["source_output"]
-    }
-  }
-
-  stage {
-    name = "Build"
-
-    action {
-      name             = "CodeBuild"
-      category         = "Build"
-      owner            = "AWS"
-      provider         = "CodeBuild"
-      version          = 1
-      input_artifacts  = ["source_output"]
-      output_artifacts = ["build_output"]
-      configuration = {
-        ProjectName = aws_codebuild_project.build.name
-      }
-    }
-  }
-}
-
-resource "aws_s3_bucket" "pipeline_bucket" {
-  bucket = "${var.project_name}-pipeline-bucket"
-}
+  name
