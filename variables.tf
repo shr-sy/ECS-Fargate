@@ -1,5 +1,5 @@
 ############################
-# AWS / GitHub Credentials
+# AWS / GitHub Variables
 ############################
 variable "aws_region" {
   type        = string
@@ -18,17 +18,17 @@ variable "AWS_SECRET_ACCESS_KEY" {
 
 variable "github_branch" {
   type        = string
-  description = "GitHub branch to build"
+  description = "GitHub branch"
 }
 
 variable "github_owner" {
   type        = string
-  description = "GitHub repository owner"
+  description = "GitHub owner/org"
 }
 
 variable "github_repo" {
   type        = string
-  description = "GitHub repository name"
+  description = "GitHub repo name"
 }
 
 variable "github_oauth_token" {
@@ -37,34 +37,34 @@ variable "github_oauth_token" {
 }
 
 ############################
-# Project / ECS variables
+# Project Variables
 ############################
 variable "project_name" {
-  type        = string
-  description = "Project name"
-  default     = "ecs-fargate-project"
+  type    = string
+  default = "ecs-fargate-project"
 }
 
 variable "vpc_cidr" {
-  type        = string
-  description = "VPC CIDR block"
-  default     = "10.0.0.0/16"
+  type    = string
+  default = "10.0.0.0/16"
 }
 
 variable "container_port" {
-  type        = number
-  description = "Container port"
-  default     = 3000
+  type    = number
+  default = 3000
 }
 
 variable "cpu" {
-  type        = number
-  description = "ECS task CPU"
-  default     = 256
+  type    = number
+  default = 256
 }
 
 variable "memory" {
-  type        = number
-  description = "ECS task memory"
-  default     = 512
+  type    = number
+  default = 512
+}
+
+variable "desired_count" {
+  type    = number
+  default = 1
 }
