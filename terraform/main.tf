@@ -98,7 +98,7 @@ module "ecs_service" {
     }
   }
 
-  load_balancers = [
+  load_balancer = [
     {
       target_group_arn = module.alb.target_groups["app"].arn
       container_name   = "app"
