@@ -4,15 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 5.69, < 7.0"  # Allow AWS 6.x for latest modules
-    }
-  }
-
-  backend "remote" {
-    organization = "YOUR_HCP_ORG"
-
-    workspaces {
-      name = "YOUR_WORKSPACE"
+      version = "~> 5.69"
     }
   }
 }
