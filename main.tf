@@ -82,7 +82,33 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 ############################
-# TASK DEFINITION
+# IAM ROLE FOR ECS TASK (Required for Fargate + ECR)
+############################
+
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "${var.project_name}-execution-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+############################
+# TASK DEFINITION (Updated)
 ############################
 
 resource "aws_ecs_task_definition" "task" {
@@ -91,6 +117,9 @@ resource "aws_ecs_task_definition" "task" {
   network_mode             = "awsvpc"
   cpu                      = var.cpu
   memory                   = var.memory
+
+  execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn      = aws_iam_role.ecs_task_execution_role.arn
 
   container_definitions = jsonencode([{
     name      = var.project_name
@@ -157,11 +186,11 @@ resource "aws_ecs_service" "service" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets         = [
+    subnets = [
       aws_subnet.public_1.id,
       aws_subnet.public_2.id
     ]
-    security_groups = [aws_security_group.ecs_sg.id]
+    security_groups  = [aws_security_group.ecs_sg.id]
     assign_public_ip = true
   }
 
