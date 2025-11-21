@@ -1,58 +1,86 @@
-############################
-# VPC + SUBNETS
-############################
-
-resource "aws_vpc" "main" {
-  cidr_block = var.vpc_cidr
+############################################################
+# VARIABLES
+############################################################
+variable "project_name" {
+  default = "ecs-fargate-project"
 }
 
-resource "aws_subnet" "public_1" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "${var.aws_region}a"
-  map_public_ip_on_launch = true
+variable "region" {
+  default = "us-east-1"
 }
 
-resource "aws_subnet" "public_2" {
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "${var.aws_region}b"
-  map_public_ip_on_launch = true
+variable "vpc_cidr" {
+  default = "10.0.0.0/16"
 }
 
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main.id
+############################################################
+# PROVIDERS
+############################################################
+provider "aws" {
+  region = var.region
 }
 
-resource "aws_route_table" "public" {
-  vpc_id = aws_vpc.main.id
+############################################################
+# VPC MODULE
+############################################################
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.0.0"
 
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
+  name = "${var.project_name}-${terraform.workspace}-vpc"
+  cidr = var.vpc_cidr
+
+  azs             = ["${var.region}a", "${var.region}b"]
+  public_subnets  = ["10.0.1.0/24", "10.0.2.0/24"]
+  private_subnets = ["10.0.3.0/24", "10.0.4.0/24"]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
+
+  tags = {
+    Project = var.project_name
   }
 }
 
-resource "aws_route_table_association" "a1" {
-  subnet_id      = aws_subnet.public_1.id
-  route_table_id = aws_route_table.public.id
+############################################################
+# ECR REPOSITORY
+############################################################
+resource "aws_ecr_repository" "app" {
+  name = "${var.project_name}-${terraform.workspace}"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
 
-resource "aws_route_table_association" "a2" {
-  subnet_id      = aws_subnet.public_2.id
-  route_table_id = aws_route_table.public.id
+############################################################
+# ECS CLUSTER
+############################################################
+resource "aws_ecs_cluster" "cluster" {
+  name = "${var.project_name}-cluster-${terraform.workspace}"
 }
 
-############################
-# SECURITY GROUP
-############################
+############################################################
+# LOAD BALANCER
+############################################################
+resource "aws_lb" "alb" {
+  name               = "${var.project_name}-alb-${terraform.workspace}"
+  load_balancer_type = "application"
+  subnets            = module.vpc.public_subnets
+  security_groups    = [aws_security_group.alb_sg.id]
+}
 
-resource "aws_security_group" "ecs_sg" {
-  vpc_id = aws_vpc.main.id
+############################################################
+# SECURITY GROUPS
+############################################################
+resource "aws_security_group" "alb_sg" {
+  name        = "${var.project_name}-alb-sg-${terraform.workspace}"
+  description = "Allow inbound HTTP"
+  vpc_id      = module.vpc.vpc_id
 
   ingress {
-    from_port   = var.container_port
-    to_port     = var.container_port
+    from_port   = 80
+    to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -65,98 +93,39 @@ resource "aws_security_group" "ecs_sg" {
   }
 }
 
-############################
-# ECR
-############################
+resource "aws_security_group" "ecs_service_sg" {
+  name   = "${var.project_name}-ecs-sg-${terraform.workspace}"
+  vpc_id = module.vpc.vpc_id
 
-resource "aws_ecr_repository" "repo" {
-  name = var.project_name
+  ingress {
+    from_port       = 80
+    to_port         = 80
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
-############################
-# ECS CLUSTER
-############################
-
-resource "aws_ecs_cluster" "cluster" {
-  name = "${var.project_name}-cluster"
-}
-
-############################
-# IAM ROLE FOR ECS TASKS
-############################
-
-resource "aws_iam_role" "ecs_task_execution_role" {
-  name = "${var.project_name}-execution-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
-  role       = aws_iam_role.ecs_task_execution_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-############################
-# TASK DEFINITION
-############################
-
-resource "aws_ecs_task_definition" "task" {
-  family                   = "${var.project_name}-task"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = var.cpu
-  memory                   = var.memory
-
-  execution_role_arn = aws_iam_role.ecs_task_execution_role.arn
-  task_role_arn      = aws_iam_role.ecs_task_execution_role.arn
-
-  container_definitions = jsonencode([{
-    name      = var.project_name
-    image     = "${aws_ecr_repository.repo.repository_url}:latest"
-    essential = true
-
-    portMappings = [{
-      containerPort = var.container_port
-      hostPort      = var.container_port
-    }]
-  }])
-}
-
-############################
-# LOAD BALANCER
-############################
-
-resource "aws_lb" "alb" {
-  name               = "${var.project_name}-alb"
-  internal           = false
-  load_balancer_type = "application"
-  subnets = [
-    aws_subnet.public_1.id,
-    aws_subnet.public_2.id
-  ]
-}
-
+############################################################
+# TARGET GROUP (Corrected)
+############################################################
 resource "aws_lb_target_group" "tg" {
-  name        = "${var.project_name}-tg"
-  port        = var.container_port
+  name        = "${var.project_name}-tg-${terraform.workspace}"
+  port        = 80
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "ip"   # REQUIRED FOR FARGATE
+  target_type = "ip"
+  vpc_id      = module.vpc.vpc_id
 
   health_check {
     path                = "/"
-    matcher             = "200"
+    protocol            = "HTTP"
+    matcher             = "200-399"
     interval            = 30
     timeout             = 5
     healthy_threshold   = 2
@@ -168,6 +137,9 @@ resource "aws_lb_target_group" "tg" {
   }
 }
 
+############################################################
+# LISTENER
+############################################################
 resource "aws_lb_listener" "listener" {
   load_balancer_arn = aws_lb.alb.arn
   port              = 80
@@ -179,34 +151,99 @@ resource "aws_lb_listener" "listener" {
   }
 }
 
-############################
-# ECS SERVICE
-############################
+############################################################
+# ECS TASK ROLE
+############################################################
+resource "aws_iam_role" "task_role" {
+  name = "${var.project_name}-task-role-${terraform.workspace}"
 
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "ecs-tasks.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+############################################################
+# EXECUTION ROLE FOR ECS FARGATE
+############################################################
+resource "aws_iam_role" "execution_role" {
+  name = "${var.project_name}-execution-role-${terraform.workspace}"
+
+  assume_role_policy = data.aws_iam_policy_document.execution_role.json
+}
+
+data "aws_iam_policy_document" "execution_role" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "exec_policy" {
+  role       = aws_iam_role.execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+############################################################
+# TASK DEFINITION
+############################################################
+resource "aws_ecs_task_definition" "task" {
+  family                   = "${var.project_name}-task-${terraform.workspace}"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+
+  execution_role_arn = aws_iam_role.execution_role.arn
+  task_role_arn      = aws_iam_role.task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "app"
+      image = "${aws_ecr_repository.app.repository_url}:latest"
+      portMappings = [{
+        containerPort = 80
+        protocol      = "tcp"
+      }]
+    }
+  ])
+}
+
+############################################################
+# ECS FARGATE SERVICE
+############################################################
 resource "aws_ecs_service" "service" {
-  name            = "${var.project_name}-service"
+  name            = "${var.project_name}-svc-${terraform.workspace}"
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.task.arn
-  desired_count   = var.desired_count
   launch_type     = "FARGATE"
+  desired_count   = 1
 
   network_configuration {
-    subnets = [
-      aws_subnet.public_1.id,
-      aws_subnet.public_2.id
-    ]
-    security_groups  = [aws_security_group.ecs_sg.id]
-    assign_public_ip = true
+    subnets         = module.vpc.private_subnets
+    security_groups = [aws_security_group.ecs_service_sg.id]
   }
 
   load_balancer {
     target_group_arn = aws_lb_target_group.tg.arn
-    container_name   = var.project_name
-    container_port   = var.container_port
+    container_name   = "app"
+    container_port   = 80
+  }
+
+  lifecycle {
+    ignore_changes = [task_definition]
   }
 
   depends_on = [
-    aws_lb_listener.listener,
-    aws_lb_target_group.tg
+    aws_lb_listener.listener
   ]
 }
