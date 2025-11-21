@@ -1,11 +1,18 @@
 ############################################################
+# LOCAL — FIX UPPERCASE WORKSPACE
+############################################################
+locals {
+  ws = lower(terraform.workspace)
+}
+
+############################################################
 # VPC MODULE
 ############################################################
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
   version = "5.0.0"
 
-  name = "efp-${terraform.workspace}-vpc"
+  name = "efp-${local.ws}-vpc"
   cidr = var.vpc_cidr
 
   azs             = ["${var.aws_region}a", "${var.aws_region}b"]
@@ -24,7 +31,7 @@ module "vpc" {
 # ECR REPOSITORY
 ############################################################
 resource "aws_ecr_repository" "app" {
-  name = "efp-${terraform.workspace}"
+  name = "efp-${local.ws}"
 
   image_scanning_configuration {
     scan_on_push = true
@@ -35,14 +42,14 @@ resource "aws_ecr_repository" "app" {
 # ECS CLUSTER
 ############################################################
 resource "aws_ecs_cluster" "cluster" {
-  name = "efp-${terraform.workspace}-cluster"
+  name = "efp-${local.ws}-cluster"
 }
 
 ############################################################
 # SECURITY GROUPS
 ############################################################
 resource "aws_security_group" "alb_sg" {
-  name        = "efp-${terraform.workspace}-alb-sg"
+  name        = "efp-${local.ws}-alb-sg"
   description = "Allow inbound HTTP"
   vpc_id      = module.vpc.vpc_id
 
@@ -62,7 +69,7 @@ resource "aws_security_group" "alb_sg" {
 }
 
 resource "aws_security_group" "ecs_service_sg" {
-  name   = "efp-${terraform.workspace}-ecs-sg"
+  name   = "efp-${local.ws}-ecs-sg"
   vpc_id = module.vpc.vpc_id
 
   ingress {
@@ -84,7 +91,7 @@ resource "aws_security_group" "ecs_service_sg" {
 # LOAD BALANCER
 ############################################################
 resource "aws_lb" "alb" {
-  name               = "efp-${terraform.workspace}-alb"
+  name               = "efp-${local.ws}-alb"   # < 32 chars
   load_balancer_type = "application"
   subnets            = module.vpc.public_subnets
   security_groups    = [aws_security_group.alb_sg.id]
@@ -94,7 +101,7 @@ resource "aws_lb" "alb" {
 # TARGET GROUP
 ############################################################
 resource "aws_lb_target_group" "tg" {
-  name        = "efp-${terraform.workspace}-tg"
+  name        = "efp-${local.ws}-tg"  # < 32 chars
   port        = var.container_port
   protocol    = "HTTP"
   target_type = "ip"
@@ -135,7 +142,7 @@ resource "aws_lb_listener" "listener" {
 # ECS TASK ROLE
 ############################################################
 resource "aws_iam_role" "task_role" {
-  name = "efp-${terraform.workspace}-task-role"
+  name = "efp-${local.ws}-task-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -163,7 +170,7 @@ data "aws_iam_policy_document" "execution_role" {
 }
 
 resource "aws_iam_role" "execution_role" {
-  name               = "efp-${terraform.workspace}-exec-role"
+  name               = "efp-${local.ws}-exec-role"
   assume_role_policy = data.aws_iam_policy_document.execution_role.json
 }
 
@@ -176,7 +183,7 @@ resource "aws_iam_role_policy_attachment" "exec_policy" {
 # TASK DEFINITION
 ############################################################
 resource "aws_ecs_task_definition" "task" {
-  family                   = "efp-${terraform.workspace}-task"
+  family                   = "efp-${local.ws}-task"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   cpu                      = tostring(var.cpu)
@@ -200,7 +207,7 @@ resource "aws_ecs_task_definition" "task" {
 # ECS FARGATE SERVICE
 ############################################################
 resource "aws_ecs_service" "service" {
-  name            = "efp-${terraform.workspace}-svc"
+  name            = "efp-${local.ws}-svc"
   cluster         = aws_ecs_cluster.cluster.id
   task_definition = aws_ecs_task_definition.task.arn
   launch_type     = "FARGATE"
