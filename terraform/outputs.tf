@@ -3,7 +3,7 @@ output "ecr_repo_url" {
 }
 
 output "alb_dns_name" {
-  value = module.alb.lb_dns_name
+  value = module.alb.this_lb_dns_name
 }
 
 output "cluster_name" {
