@@ -82,7 +82,7 @@ resource "aws_ecs_cluster" "cluster" {
 }
 
 ############################
-# IAM ROLE FOR ECS TASK (Required for Fargate + ECR)
+# IAM ROLE FOR ECS TASK
 ############################
 
 resource "aws_iam_role" "ecs_task_execution_role" {
@@ -108,7 +108,7 @@ resource "aws_iam_role_policy_attachment" "ecs_task_execution_policy" {
 }
 
 ############################
-# TASK DEFINITION (Updated)
+# TASK DEFINITION
 ############################
 
 resource "aws_ecs_task_definition" "task" {
@@ -148,10 +148,11 @@ resource "aws_lb" "alb" {
 }
 
 resource "aws_lb_target_group" "tg" {
-  name     = "${var.project_name}-tg"
-  port     = var.container_port
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name        = "${var.project_name}-tg"
+  port        = var.container_port
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"  # REQUIRED FOR FARGATE
 
   health_check {
     path                = "/"
