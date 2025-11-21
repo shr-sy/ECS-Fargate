@@ -1,11 +1,10 @@
 terraform {
-  required_version = ">= 1.5.0"
+  required_version = ">= 1.5"
 
   cloud {
-    organization = "YOUR_HCP_ORG"
-
+    organization = "your-hcp-org"
     workspaces {
-      name = "ecs-fargate-deploy"
+      name = "ecs-fargate-ws"
     }
   }
 
@@ -18,5 +17,7 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region     = var.aws_region
+  access_key = var.AWS_ACCESS_KEY_ID
+  secret_key = var.AWS_SECRET_ACCESS_KEY
 }
