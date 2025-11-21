@@ -98,14 +98,13 @@ module "ecs_service" {
     }
   }
 
-  load_balancer = [
-    {
-      target_group_arn = module.alb.target_groups["app"].arn
-      container_name   = "app"
-      container_port   = var.container_port
-    }
-  ]
+  load_balancer = {
+    target_group_arn = module.alb.target_groups["app"].arn
+    container_name   = "app"
+    container_port   = var.container_port
+  }
 }
+
 ###########################
 # CodeBuild IAM Role
 ###########################
